@@ -8,6 +8,8 @@ import imutils #added
 import sys
 import os
 from scipy.ndimage import interpolation as inter
+import sys
+from helper import *
 
 def rotate_image_180(image,angle):
     
@@ -19,14 +21,14 @@ def rotate_image_180(image,angle):
     
     #check if the docs needs to be rotated more than 180 degree
     #we have used pytesseract to find the rotation angle
-    rot_data = pytesseract.image_to_osd(image);
+    rot_data = pytesseract.image_to_osd(image, config='osd --psm 0');
     rot = re.search('(?<=Rotate: )\d+', rot_data).group(0)
     print(rot_data)
     angle = float(rot)
     print("Angle: {}".format(angle))
     if angle == 90.0:
         image = imutils.rotate_bound(image, angle)
-        rot_data = pytesseract.image_to_osd(image);
+        rot_data = pytesseract.image_to_osd(image, config='osd --psm 0');
         rot = re.search('(?<=Rotate: )\d+', rot_data).group(0)
         angle = float(rot)
         print("Angle2: {}".format(angle))
@@ -37,8 +39,8 @@ def rotate_image_180(image,angle):
     rotated2 = cv2.merge([r, g, b])
 
     img = im.fromarray(rotated2)
-    img.save("file.jpg")
-    print("file saved as file.jpg")
+    # img.save("file.jpg")
+    # print("file saved as file.jpg")
     return img
 
 def small_angle(img):
@@ -80,19 +82,39 @@ def small_angle(img):
 
     return (best_angle)
 
-#import os
-#filenames = next(os.walk("/home/ds/Documents/cropped/"))[2]
-#for f in filenames:
-    #path="/home/ds/Documents/cit1/"+str(f)
-    ## bulk alignment process goes here
-    #image = im.open(path) #PIL
+def main(event, context):
+    print("triggered")
+    BUCKET_NAME = event["Records"][0]["s3"]["bucket"]["name"]
+    query_key = event["Records"][0]["s3"]["object"]["key"]
+
+    image_path = download_from_s3(BUCKET_NAME, query_key)
+    print(f"image downloaded to temp dir {image_path}")
+    img=cv2.imread(image_path)
+    img = im.fromarray(cv2.fastNlMeansDenoisingColored(img, None, 10, 10, 7, 15))
+    print("image denoised")
+    # rot=small_angle(img)
+    # img = rotate_image_180(img,rot)
+    # print("image rotated")
+    temp_path = os.path.join(tempfile.gettempdir(), query_key.split('/')[-1])
+    img.save(temp_path)
+    print("image saved to temp dir")
+    s3_path = os.path.join("processed", query_key)
+
+    result = upload_to_s3(BUCKET_NAME, s3_path, temp_path)
+    print("image uploaded to s3")
+    return {"status": "success"}
+
+
+
+if __name__ == '__main__':
+    filename = sys.argv[-1]    
+    img=cv2.imread(filename)   #cv2
+
+    #removing dots and random patches from images 
+    img = cv2.fastNlMeansDenoisingColored(img, None, 10, 10, 7, 15) 
+
+    rot=small_angle(img)  #finding skew angle (learn about histogram equalization)
+    rotated_image = rotate_image_180(img,rot) 
     
-import sys
-filename = sys.argv[-1]    
-img=cv2.imread(filename)   #cv2
+    rotated_image.save("file.jpg")
 
-#removing dots and random patches from images 
-img = cv2.fastNlMeansDenoisingColored(img, None, 10, 10, 7, 15) 
-
-rot=small_angle(img)  #finding skew angle (learn about histogram equalization)
-rotate_image_180(img,rot) 
